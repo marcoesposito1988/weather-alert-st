@@ -98,11 +98,17 @@ assert_almost_eq(munich_loc.lon, 11.576124, 0.0001, "Munich City longitude")
 assert_eq(munich_loc.station_id, "03379", "Munich DWD station ID")
 
 local bsky_url = weather_service.build_url(munich_loc, { weatherSource = "brightsky" })
-assert_eq(string.find(bsky_url, "api.brightsky.dev", 1, true) ~= nil, true, "Bright Sky URL contains domain")
+assert_eq(string.find(bsky_url, "http://api.brightsky.dev", 1, true) ~= nil, true, "Bright Sky URL contains HTTP scheme and domain")
 assert_eq(string.find(bsky_url, "lat=48.137154", 1, true) ~= nil, true, "Bright Sky URL contains lat")
 
 local openmeteo_url = weather_service.build_url(munich_loc, { weatherSource = "openmeteo" })
-assert_eq(string.find(openmeteo_url, "api.open-meteo.com/v1/dwd-icon", 1, true) ~= nil, true, "Open-Meteo DWD ICON URL contains endpoint")
+assert_eq(string.find(openmeteo_url, "http://api.open-meteo.com/v1/dwd-icon", 1, true) ~= nil, true, "Open-Meteo DWD ICON URL contains HTTP endpoint")
+
+local custom_proxy_url = weather_service.build_url(munich_loc, { customEndpoint = "http://192.168.1.50:8080" })
+assert_eq(string.find(custom_proxy_url, "http://192.168.1.50:8080/current_weather?lat=48.137154", 1, true) ~= nil, true, "Custom LAN Proxy URL formatted properly")
+
+local custom_full_url = weather_service.build_url(munich_loc, { customEndpoint = "http://192.168.1.50:8080/myweather?city=munich" })
+assert_eq(custom_full_url, "http://192.168.1.50:8080/myweather?city=munich", "Direct query custom URL preserved exactly")
 
 print("\n=== 5. Testing Weather Service Response Parsers ===")
 local brightsky_payload = [[{
@@ -157,6 +163,27 @@ assert_almost_eq(om_parsed.temperature, 11.0, 0.01, "Open-Meteo temperature = 11
 assert_eq(om_parsed.humidity, 84, "Open-Meteo humidity = 84")
 assert_almost_eq(om_parsed.wind_speed_kmh, 6.9, 0.01, "Open-Meteo wind speed = 6.9")
 assert_almost_eq(om_parsed.wind_gust_kmh, 19.8, 0.01, "Open-Meteo wind gust = 19.8")
+
+print("\n=== 6. Testing HTTP GET Client Dispatching & Error Handling ===")
+-- Test real or mocked http_get with HTTP url
+local test_body, test_code = weather_service.http_get("http://api.brightsky.dev/current_weather?lat=48.137154&lon=11.576124")
+if test_body then
+  assert_eq(test_code, 200, "Live HTTP GET returned 200")
+  local parsed_live, live_err = weather_service.parse_brightsky_response(test_body)
+  assert_eq(live_err, nil, "Parsed live payload without error")
+  assert_eq(type(parsed_live.temperature), "number", "Live payload has numeric temperature")
+else
+  print("  [SKIP] Live network fetch skipped or offline: " .. tostring(test_code))
+end
+
+-- Test error cases: invalid JSON / 404 / 500 error payload handling
+local bad_json_res, bad_json_err = weather_service.parse_brightsky_response("<html>502 Bad Gateway</html>")
+assert_eq(bad_json_res, nil, "Bad JSON returns nil result")
+assert_eq(bad_json_err ~= nil, true, "Bad JSON returns descriptive error")
+
+local empty_weather_res, empty_weather_err = weather_service.parse_brightsky_response('{"error": "not found"}')
+assert_eq(empty_weather_res, nil, "Missing weather key returns nil result")
+assert_eq(empty_weather_err ~= nil, true, "Missing weather key returns error")
 
 print(string.format("\n=========================================="))
 print(string.format("TEST RESULTS: %d Passed, %d Failed", pass_count, fail_count))

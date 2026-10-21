@@ -1,0 +1,20 @@
+services:
+  dwd-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dwd-weather-proxy:latest
+    container_name: dwd-weather-proxy
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run

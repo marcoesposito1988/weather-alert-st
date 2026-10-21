@@ -54,23 +54,36 @@ end
 --- Build request URL for weather polling
 function weather_service.build_url(location, preferences)
   preferences = preferences or {}
+  local custom = preferences.customEndpoint
+  if custom and type(custom) == "string" and custom:match("%S") then
+    custom = custom:match("^%s*(.-)%s*$")
+    if custom:find("?") then
+      return custom
+    else
+      local lat = location.lat or MUNICH_CITY.lat
+      local lon = location.lon or MUNICH_CITY.lon
+      local separator = custom:sub(-1) == "/" and "" or "/"
+      return string.format("%s%scurrent_weather?lat=%.6f&lon=%.6f", custom, separator, lat, lon)
+    end
+  end
+
   local source = preferences.weatherSource or "brightsky"
 
   if source == "openmeteo" then
     local lat = location.lat or MUNICH_CITY.lat
     local lon = location.lon or MUNICH_CITY.lon
     return string.format(
-      "https://api.open-meteo.com/v1/dwd-icon?latitude=%.6f&longitude=%.6f&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,surface_pressure",
+      "http://api.open-meteo.com/v1/dwd-icon?latitude=%.6f&longitude=%.6f&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,surface_pressure",
       lat, lon
     )
   else
     -- Default: Bright Sky DWD API
     if location.station_id and preferences.locationMode == "station" then
-      return string.format("https://api.brightsky.dev/current_weather?dwd_station_id=%s", location.station_id)
+      return string.format("http://api.brightsky.dev/current_weather?dwd_station_id=%s", location.station_id)
     else
       local lat = location.lat or MUNICH_CITY.lat
       local lon = location.lon or MUNICH_CITY.lon
-      return string.format("https://api.brightsky.dev/current_weather?lat=%.6f&lon=%.6f", lat, lon)
+      return string.format("http://api.brightsky.dev/current_weather?lat=%.6f&lon=%.6f", lat, lon)
     end
   end
 end
@@ -139,30 +152,21 @@ function weather_service.parse_openmeteo_response(body_str)
   }
 end
 
---- Execute HTTP GET request using cosock / ssl.https / socket.http
+--- Execute HTTP GET request using cosock / socket.http / ssl.https
 function weather_service.http_get(url)
-  local response_chunks = {}
-
   local has_cosock, cosock = pcall(require, "cosock")
   local https
   local http
   local ltn12 = require("ltn12")
 
   if has_cosock and cosock then
-    local has_ssl, cosock_ssl = pcall(cosock.require, "ssl.https")
-    if has_ssl and cosock_ssl then
-      https = cosock_ssl
-    end
     local has_http, cosock_http = pcall(cosock.require, "socket.http")
     if has_http and cosock_http then
       http = cosock_http
     end
-  end
-
-  if not https then
-    local has_ssl, raw_ssl = pcall(require, "ssl.https")
-    if has_ssl and raw_ssl then
-      https = raw_ssl
+    local has_ssl, cosock_ssl = pcall(cosock.require, "ssl.https")
+    if has_ssl and cosock_ssl then
+      https = cosock_ssl
     end
   end
 
@@ -173,27 +177,72 @@ function weather_service.http_get(url)
     end
   end
 
-  local client = https or http
-  if not client then
+  if not https then
+    local has_ssl, raw_ssl = pcall(require, "ssl.https")
+    if has_ssl and raw_ssl then
+      https = raw_ssl
+    end
+  end
+
+  if not http and not https then
     return nil, "No HTTP/HTTPS client available"
   end
 
-  local req = {
-    url = url,
-    method = "GET",
-    headers = {
-      ["User-Agent"] = "SmartThings-Edge-DWD-Weather/1.0",
-      ["Accept"] = "application/json"
-    },
-    sink = ltn12.sink.table(response_chunks),
-    timeout = 15
-  }
+  local is_https = url:match("^https://") ~= nil
 
-  local code, status_or_headers, headers = client.request(req)
-  -- socket.http/ssl.https returns 1, code, headers when sink is table, or result, code, headers
-  local status_code = tonumber(status_or_headers) or tonumber(code) or 0
-  local body = table.concat(response_chunks)
+  -- Helper to perform a single request safely wrapped in pcall
+  local function do_request(client_module, target_url)
+    local response_chunks = {}
+    local req = {
+      url = target_url,
+      method = "GET",
+      headers = {
+        ["User-Agent"] = "SmartThings-Edge-DWD-Weather/1.0",
+        ["Accept"] = "application/json"
+      },
+      sink = ltn12.sink.table(response_chunks),
+      timeout = 15
+    }
 
+    local ok, code, status_or_headers, headers = pcall(client_module.request, req)
+    if not ok then
+      return nil, tostring(code) -- code contains error message when pcall fails
+    end
+
+    if not code then
+      return nil, tostring(status_or_headers or "Connection failed")
+    end
+
+    local status_code = tonumber(status_or_headers) or tonumber(code) or 0
+    local body = table.concat(response_chunks)
+    return body, status_code
+  end
+
+  local body, status_or_err
+  if is_https then
+    if https then
+      body, status_or_err = do_request(https, url)
+    end
+    -- Fallback to plain HTTP if HTTPS failed or ssl client was unavailable
+    if not body and http then
+      local fallback_url = url:gsub("^https://", "http://")
+      body, status_or_err = do_request(http, fallback_url)
+    end
+  else
+    -- Plain HTTP request: always use socket.http
+    if http then
+      body, status_or_err = do_request(http, url)
+    elseif https then
+      -- Fallback only if socket.http was completely absent
+      body, status_or_err = do_request(https, url)
+    end
+  end
+
+  if not body then
+    return nil, string.format("Network/socket error: %s", tostring(status_or_err or "Unknown error"))
+  end
+
+  local status_code = tonumber(status_or_err) or 0
   if status_code >= 200 and status_code < 300 then
     return body, status_code
   else

@@ -8,15 +8,64 @@ local discovery = require("discovery")
 
 local TIMER_KEY = "weather_poll_timer"
 
+--- Helper to emit an event on a specific component if it exists, falling back to device:emit_event
+local function emit_component_event(device, component_id, event)
+  if component_id and device.profile and device.profile.components and device.profile.components[component_id] then
+    if device.emit_component_event then
+      device:emit_component_event(device.profile.components[component_id], event)
+      return
+    end
+  end
+  device:emit_event(event)
+end
+
 --- Poll weather data and update device capabilities & wind alarm
 local function poll_weather(driver, device)
   log.info(string.format("Polling weather data for device [%s]", device.label or device.device_network_id))
 
   local data, err = weather_service.fetch_weather(device.preferences)
   if not data then
-    log.error(string.format("Weather update failed for [%s]: %s", device.label or device.id, tostring(err)))
+    local failure_count = (device:get_field("consecutive_failures") or 0) + 1
+    device:set_field("consecutive_failures", failure_count)
+    local threshold = tonumber(device.preferences.failureThreshold) or 1
+    if threshold < 1 then threshold = 1 end
+
+    log.error(string.format(
+      "Weather fetch failed for [%s] (Failure %d/%d): %s",
+      device.label or device.id, failure_count, threshold, tostring(err)
+    ))
+
+    if failure_count >= threshold then
+      device:set_field("proxy_error_state", true)
+      -- Mark main presence as not present (offline/unreachable)
+      device:emit_event(capabilities.presenceSensor.presence.not_present())
+      -- Update proxy component
+      emit_component_event(device, "proxy", capabilities.presenceSensor.presence.not_present())
+      emit_component_event(device, "proxy", capabilities.switch.switch.on())
+      emit_component_event(device, "proxy", capabilities.contactSensor.contact.open())
+      log.warn(string.format(
+        "*** PROXY / WEATHER FEED OFFLINE ALERT TRIGGERED *** %d consecutive fetch failures. Last error: %s",
+        failure_count, tostring(err)
+      ))
+    end
     return
   end
+
+  -- Successful fetch: reset failure counter & clear proxy error
+  local prev_failure_count = device:get_field("consecutive_failures") or 0
+  local prev_proxy_error = device:get_field("proxy_error_state")
+  device:set_field("consecutive_failures", 0)
+  device:set_field("proxy_error_state", false)
+
+  if prev_proxy_error or prev_failure_count > 0 then
+    log.info("Proxy / weather feed connection restored to normal.")
+  end
+
+  -- Emit Online / Present status
+  device:emit_event(capabilities.presenceSensor.presence.present())
+  emit_component_event(device, "proxy", capabilities.presenceSensor.presence.present())
+  emit_component_event(device, "proxy", capabilities.switch.switch.off())
+  emit_component_event(device, "proxy", capabilities.contactSensor.contact.closed())
 
   local prev_alert = device:get_field("wind_alert_state")
   local is_alert, effective_wind, threshold_kmh, reset_threshold_kmh = wind_logic.evaluate_alert(
@@ -92,9 +141,15 @@ local function device_added(driver, device)
   -- Initialize default state
   device:emit_event(capabilities.contactSensor.contact.closed())
   device:emit_event(capabilities.switch.switch.off())
+  device:emit_event(capabilities.presenceSensor.presence.present())
   device:emit_event(capabilities.temperatureMeasurement.temperature({ value = 15.0, unit = "C" }))
   device:emit_event(capabilities.relativeHumidityMeasurement.humidity({ value = 60 }))
   device:emit_event(capabilities.atmosphericPressureMeasurement.atmosphericPressure({ value = 101.3, unit = "kPa" }))
+
+  -- Initialize proxy component state
+  emit_component_event(device, "proxy", capabilities.presenceSensor.presence.present())
+  emit_component_event(device, "proxy", capabilities.switch.switch.off())
+  emit_component_event(device, "proxy", capabilities.contactSensor.contact.closed())
 
   -- Perform immediate initial poll
   device.thread:queue_event(function()
@@ -138,17 +193,36 @@ local function handle_refresh(driver, device, command)
 end
 
 local function handle_switch_on(driver, device, command)
-  log.info("Manual High Wind Alert test: Switch turned ON")
-  device:set_field("wind_alert_state", true)
-  device:emit_event(capabilities.switch.switch.on())
-  device:emit_event(capabilities.contactSensor.contact.open())
+  if command and command.component == "proxy" then
+    log.info("Manual Proxy Alert test on proxy component: Switch turned ON")
+    device:set_field("proxy_error_state", true)
+    emit_component_event(device, "proxy", capabilities.switch.switch.on())
+    emit_component_event(device, "proxy", capabilities.contactSensor.contact.open())
+    emit_component_event(device, "proxy", capabilities.presenceSensor.presence.not_present())
+    device:emit_event(capabilities.presenceSensor.presence.not_present())
+  else
+    log.info("Manual High Wind Alert test: Switch turned ON")
+    device:set_field("wind_alert_state", true)
+    device:emit_event(capabilities.switch.switch.on())
+    device:emit_event(capabilities.contactSensor.contact.open())
+  end
 end
 
 local function handle_switch_off(driver, device, command)
-  log.info("Manual High Wind Alert reset: Switch turned OFF")
-  device:set_field("wind_alert_state", false)
-  device:emit_event(capabilities.switch.switch.off())
-  device:emit_event(capabilities.contactSensor.contact.closed())
+  if command and command.component == "proxy" then
+    log.info("Manual Proxy Alert reset on proxy component: Switch turned OFF")
+    device:set_field("proxy_error_state", false)
+    device:set_field("consecutive_failures", 0)
+    emit_component_event(device, "proxy", capabilities.switch.switch.off())
+    emit_component_event(device, "proxy", capabilities.contactSensor.contact.closed())
+    emit_component_event(device, "proxy", capabilities.presenceSensor.presence.present())
+    device:emit_event(capabilities.presenceSensor.presence.present())
+  else
+    log.info("Manual High Wind Alert reset: Switch turned OFF")
+    device:set_field("wind_alert_state", false)
+    device:emit_event(capabilities.switch.switch.off())
+    device:emit_event(capabilities.contactSensor.contact.closed())
+  end
 end
 
 ------------------------------------------------------------------------

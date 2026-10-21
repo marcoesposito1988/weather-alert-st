@@ -11,6 +11,11 @@ A SmartThings Edge Driver written in Lua that polls real-time weather and wind d
   - Automatically raises an alarm when sustained wind or wind gusts breach your configured safety threshold.
   - Exposes both **Contact Sensor** (`open` = High Wind Danger / Close Blinds, `closed` = Safe) and **Switch** (`on` = High Wind Alert, `off` = Normal) capabilities so you can trigger SmartThings Routines easily.
   - **Hysteresis Anti-Flapping**: Prevents rapid open/close cycles by requiring wind to drop below a customizable percentage of the threshold before clearing the alert.
+- **Proxy & Connection Health Monitoring (No Silent Failures)**:
+  - Continuously monitors proxy connectivity and DWD weather feed health.
+  - Exposes **Presence Sensor** (`present` = Online, `not present` = Offline / Proxy Failure) on the main device.
+  - Provides a dedicated **Proxy & Feed Status** component with a **Switch** (`on` = Proxy Error, `off` = Normal) and **Contact Sensor** (`open` = Offline, `closed` = OK) to trigger instant user notifications via Routines.
+  - Configurable **Offline Alert Threshold** (1 to 5 consecutive failed polls) to filter temporary glitches.
 - **Configurable from SmartThings App UI**:
   - **Location Modes**:
     - Munich City Center (DWD Station `03379` / `10865`) - default
@@ -20,7 +25,8 @@ A SmartThings Edge Driver written in Lua that polls real-time weather and wind d
   - **Wind Strength Threshold**: Adjustable value in **km/h**, **m/s**, or **Beaufort Scale (Bft 1–12)**.
   - **Wind Gust Evaluation**: Option to trigger on peak wind gusts (recommended for blind safety) or average sustained wind.
   - **Polling Frequency**: 1 to 60 minutes.
-  - **Weather Service Provider**: DWD via Bright Sky API or DWD ICON via Open-Meteo.
+   - **Weather Service Provider**: DWD via Bright Sky API or DWD ICON via Open-Meteo.
+   - **LAN Proxy / Custom Endpoint (Optional)**: Configure a local LAN IP (e.g. `http://192.168.1.50:8080`) to route requests through a local gateway when hub WAN DNS is restricted.
 - **Full Sensor Readings**: Reports Temperature (°C), Relative Humidity (%), and Atmospheric Pressure (kPa/hPa).
 - **Manual Control & Testing**: "Refresh" button for immediate live weather fetch and "Switch" toggle to test blind-closing automations.
 
@@ -32,6 +38,13 @@ A SmartThings Edge Driver written in Lua that polls real-time weather and wind d
 weather-st/
 ├── config.yaml                   # Driver metadata & LAN permissions
 ├── fingerprints.yaml             # LAN discovery profile mapping
+├── docker-compose.yml            # Docker Compose configuration for local proxy
+├── proxy/
+│   ├── Dockerfile                # Hardened unprivileged Nginx proxy image
+│   ├── nginx.conf                # Proxy configuration & rate limiting
+│   ├── docker-compose.yml        # Proxy standalone compose file
+│   ├── run.sh                    # One-command quickstart script
+│   └── README.md                 # Proxy documentation & setup guide
 ├── profiles/
 │   └── weather-station.yml       # Device capabilities & UI preference settings
 ├── src/
@@ -87,6 +100,31 @@ smartthings edge:drivers:install <DRIVER_ID> --channel <CHANNEL_ID> --hub <HUB_I
 
 ---
 
+## Hosting a Local LAN Proxy (Docker)
+
+If your SmartThings Hub's Edge environment cannot resolve external WAN domain names or make direct outbound HTTPS connections (e.g. `[string "socket"]:98: host or service not provided, or not known`), you can host a lightweight, secure local proxy on any local machine (Raspberry Pi, NAS, server) using Docker:
+
+### Quick Start
+```bash
+# Option A: One-line start script
+./proxy/run.sh
+
+# Option B: Docker Compose
+docker compose up -d
+```
+
+### In SmartThings App
+1. Open your **DWD Weather & Blind Guard** device settings in the SmartThings app.
+2. In **LAN Proxy / Custom Endpoint (Optional)**, enter your proxy machine's local IP:
+   ```
+   http://192.168.1.50:8080
+   ```
+3. Tap **Save** and test via the **Refresh** button.
+
+*For complete details, security features, and manual Docker commands, see [`proxy/README.md`](proxy/README.md).*
+
+---
+
 ## Configuring Settings in the UI
 
 In the SmartThings App:
@@ -116,6 +154,24 @@ To automatically close your window blinds when the wind becomes too strong:
 4. Save the routine as **"Close Blinds on High Wind"**.
 
 *(Optional)* You can create a second routine to re-open the blinds once the wind subsides (**If Contact Sensor = Closed -> Open Blinds**).
+
+---
+
+## Setting Up SmartThings Routine for Proxy / Connection Failure Alerts
+
+To ensure you are immediately notified if your local proxy container stops running or weather fetching fails:
+
+1. Open the **SmartThings App** -> **Routines** -> **+** (Create Routine).
+2. **If (Condition)**:
+   - Tap **Device status** -> Select **DWD Weather & Blind Guard**.
+   - Choose either:
+     - **Presence sensor** -> **Not present**
+     - OR **Proxy & Feed Status (Switch)** -> **On**
+     - OR **Proxy & Feed Status (Contact sensor)** -> **Open**
+3. **Then (Action)**:
+   - Tap **Notify someone** -> **Send notification to members** (or Send text message / audio notification).
+   - Enter message: `"Warning: DWD Weather Proxy is offline or unreachable. Blinds automated wind protection may be suspended."`
+4. Save the routine as **"Weather Proxy Offline Alert"**.
 
 ---
 

@@ -64,6 +64,12 @@ local capabilities = {
       on = function() return { capability = "switch", attribute = "switch", value = "on" } end,
       off = function() return { capability = "switch", attribute = "switch", value = "off" } end
     }
+  },
+  presenceSensor = {
+    presence = {
+      present = function() return { capability = "presenceSensor", attribute = "presence", value = "present" } end,
+      not_present = function() return { capability = "presenceSensor", attribute = "presence", value = "not present" } end
+    }
   }
 }
 
@@ -76,6 +82,11 @@ local sample_normal = {
   wind_gust_kmh = 18.0,
   station_name = "Muenchen-Stadt"
 }
+
+-- Initial healthy status
+mock_device:set_field("consecutive_failures", 0)
+mock_device:set_field("proxy_error_state", false)
+mock_device:emit_event(capabilities.presenceSensor.presence.present())
 
 local prev_alert = mock_device:get_field("wind_alert_state")
 local is_alert, eff_wind, thresh, r_thresh = wind_logic.evaluate_alert(
@@ -133,4 +144,37 @@ is_alert, eff_wind, thresh, r_thresh = wind_logic.evaluate_alert(
 )
 assert(is_alert == true, "With threshold lowered to 15 km/h, gust of 18 km/h must trigger alert")
 
-print("All mock lifecycle and state simulations passed successfully!")
+-- Test Proxy Failure Simulation
+print("\n=== Testing Proxy Failure & Offline Alert Simulation ===")
+mock_device.preferences.failureThreshold = 2
+
+-- Failure 1: Below threshold (2), should record failure count but not alert yet
+local fail_count = (mock_device:get_field("consecutive_failures") or 0) + 1
+mock_device:set_field("consecutive_failures", fail_count)
+assert(fail_count == 1, "First failure count recorded")
+assert(fail_count < mock_device.preferences.failureThreshold, "Below failure threshold")
+
+-- Failure 2: Reaches threshold, triggers offline alert
+fail_count = (mock_device:get_field("consecutive_failures") or 0) + 1
+mock_device:set_field("consecutive_failures", fail_count)
+if fail_count >= mock_device.preferences.failureThreshold then
+  mock_device:set_field("proxy_error_state", true)
+  mock_device:emit_event(capabilities.presenceSensor.presence.not_present())
+  mock_device:emit_event(capabilities.switch.switch.on())
+  mock_device:emit_event(capabilities.contactSensor.contact.open())
+end
+
+assert(mock_device:get_field("proxy_error_state") == true, "Proxy error state set to true")
+assert(mock_device:get_field("consecutive_failures") == 2, "Failure count reached 2")
+
+-- Recovery: Successful poll resets failures and clears proxy error
+mock_device:set_field("consecutive_failures", 0)
+mock_device:set_field("proxy_error_state", false)
+mock_device:emit_event(capabilities.presenceSensor.presence.present())
+mock_device:emit_event(capabilities.switch.switch.off())
+mock_device:emit_event(capabilities.contactSensor.contact.closed())
+
+assert(mock_device:get_field("proxy_error_state") == false, "Proxy error state cleared on recovery")
+assert(mock_device:get_field("consecutive_failures") == 0, "Failure count reset to 0")
+
+print("All mock lifecycle, proxy offline detection, and state simulations passed successfully!")

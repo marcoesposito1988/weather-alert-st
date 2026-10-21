@@ -1,0 +1,3 @@
+lan:
+  - id: "dwd-weather-station"
+    deviceProfileName: "weather-station"

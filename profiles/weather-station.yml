@@ -1,0 +1,114 @@
+name: weather-station
+components:
+  - id: main
+    capabilities:
+      - id: temperatureMeasurement
+        version: 1
+      - id: relativeHumidityMeasurement
+        version: 1
+      - id: atmosphericPressureMeasurement
+        version: 1
+      - id: contactSensor
+        version: 1
+      - id: switch
+        version: 1
+      - id: refresh
+        version: 1
+    categories:
+      - name: WeatherStation
+preferences:
+  - name: locationMode
+    title: "Location Mode"
+    description: "Choose preset location or custom coordinates/station"
+    required: true
+    preferenceType: enumeration
+    definition:
+      options:
+        munich_city: "Munich City Center (DWD 03379)"
+        munich_airport: "Munich Airport (DWD 01262)"
+        coords: "Custom Coordinates (Lat/Lon)"
+        station: "Custom DWD Station ID"
+      default: "munich_city"
+  - name: latitude
+    title: "Latitude"
+    description: "Latitude for weather data (Default: Munich 48.137154)"
+    required: false
+    preferenceType: number
+    definition:
+      minimum: -90.0
+      maximum: 90.0
+      default: 48.137154
+  - name: longitude
+    title: "Longitude"
+    description: "Longitude for weather data (Default: Munich 11.576124)"
+    required: false
+    preferenceType: number
+    definition:
+      minimum: -180.0
+      maximum: 180.0
+      default: 11.576124
+  - name: stationId
+    title: "DWD Station ID"
+    description: "Specific DWD Station ID (e.g., 03379 for Munich-City, 01262 for Munich-Airport)"
+    required: false
+    preferenceType: string
+    definition:
+      stringType: text
+      default: "03379"
+      minLength: 1
+      maxLength: 10
+  - name: windThreshold
+    title: "Wind Threshold (Blind Protection)"
+    description: "Wind strength threshold to trigger blind-close alert"
+    required: true
+    preferenceType: integer
+    definition:
+      minimum: 1
+      maximum: 200
+      default: 35
+  - name: windUnit
+    title: "Wind Speed Unit for Threshold"
+    description: "Unit for wind threshold setting (km/h, m/s, or Beaufort)"
+    required: true
+    preferenceType: enumeration
+    definition:
+      options:
+        kmh: "km/h (Kilometers per hour)"
+        ms: "m/s (Meters per second)"
+        beaufort: "Beaufort Scale (Bft 1 - 12)"
+      default: "kmh"
+  - name: useGusts
+    title: "Trigger on Wind Gusts"
+    description: "Evaluate wind gusts (recommended for blind safety) instead of sustained wind speed"
+    required: true
+    preferenceType: boolean
+    definition:
+      default: true
+  - name: weatherSource
+    title: "Weather Service Source"
+    description: "DWD Bright Sky API or DWD ICON via Open-Meteo"
+    required: true
+    preferenceType: enumeration
+    definition:
+      options:
+        brightsky: "DWD Official via Bright Sky API"
+        openmeteo: "DWD ICON via Open-Meteo API"
+      default: "brightsky"
+  - name: pollInterval
+    title: "Polling Interval (Minutes)"
+    description: "Frequency of weather updates (5 to 60 minutes)"
+    required: true
+    preferenceType: integer
+    definition:
+      minimum: 1
+      maximum: 60
+      default: 10
+  - name: hysteresis
+    title: "Hysteresis Reset (% of Threshold)"
+    description: "Wind must drop below this percentage of the threshold before clearing alert (prevents flapping)"
+    required: true
+    preferenceType: integer
+    definition:
+      minimum: 50
+      maximum: 100
+      default: 80

@@ -1,0 +1,5 @@
+name: "DWD Weather and Wind Alert"
+packageKey: "dwd-weather-alert"
+permissions:
+  lan: {}
+  discovery: {}

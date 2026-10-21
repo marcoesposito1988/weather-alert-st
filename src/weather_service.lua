@@ -160,13 +160,27 @@ function weather_service.http_get(url)
   local ltn12 = require("ltn12")
 
   if has_cosock and cosock then
-    local has_http, cosock_http = pcall(cosock.require, "socket.http")
-    if has_http and cosock_http then
-      http = cosock_http
+    if cosock.asyncify then
+      local ok_http, a_http = pcall(cosock.asyncify, "socket.http")
+      if ok_http and a_http then
+        http = a_http
+      end
+      local ok_ssl, a_ssl = pcall(cosock.asyncify, "ssl.https")
+      if ok_ssl and a_ssl then
+        https = a_ssl
+      end
     end
-    local has_ssl, cosock_ssl = pcall(cosock.require, "ssl.https")
-    if has_ssl and cosock_ssl then
-      https = cosock_ssl
+    if not http and cosock.require then
+      local has_http, cosock_http = pcall(cosock.require, "socket.http")
+      if has_http and cosock_http then
+        http = cosock_http
+      end
+    end
+    if not https and cosock.require then
+      local has_ssl, cosock_ssl = pcall(cosock.require, "ssl.https")
+      if has_ssl and cosock_ssl then
+        https = cosock_ssl
+      end
     end
   end
 
@@ -201,7 +215,24 @@ function weather_service.http_get(url)
         ["Accept"] = "application/json"
       },
       sink = ltn12.sink.table(response_chunks),
-      timeout = 15
+      timeout = 15,
+      create = function()
+        if has_cosock and cosock and cosock.socket and cosock.socket.tcp then
+          local sock = cosock.socket.tcp()
+          if sock and sock.settimeout then
+            sock:settimeout(15)
+          end
+          return sock
+        end
+        local has_socket, socket = pcall(require, "socket")
+        if has_socket and socket and socket.tcp then
+          local sock = socket.tcp()
+          if sock and sock.settimeout then
+            sock:settimeout(15)
+          end
+          return sock
+        end
+      end
     }
 
     local ok, code, status_or_headers, headers = pcall(client_module.request, req)

@@ -185,6 +185,37 @@ local empty_weather_res, empty_weather_err = weather_service.parse_brightsky_res
 assert_eq(empty_weather_res, nil, "Missing weather key returns nil result")
 assert_eq(empty_weather_err ~= nil, true, "Missing weather key returns error")
 
+print("\n=== 7. Testing Custom Capability Schemas ===")
+local function read_file(path)
+  local f = io.open(path, "r")
+  if not f then return nil end
+  local content = f:read("*a")
+  f:close()
+  return content
+end
+
+local ws_cap = read_file("capabilities/windSpeed.json")
+assert_eq(ws_cap ~= nil, true, "capabilities/windSpeed.json exists")
+local ws_parsed = json.decode(ws_cap)
+assert_eq(ws_parsed.name, "Wind Speed", "Wind speed capability name is 'Wind Speed'")
+assert_eq(ws_parsed.attributes.windSpeed ~= nil, true, "Wind speed attribute defined")
+
+local ws_pres = read_file("capabilities/windSpeed-presentation.json")
+assert_eq(ws_pres ~= nil, true, "capabilities/windSpeed-presentation.json exists")
+local ws_pres_parsed = json.decode(ws_pres)
+assert_eq(ws_pres_parsed.detailView ~= nil, true, "Wind speed presentation detailView defined")
+
+local wg_cap = read_file("capabilities/windGust.json")
+assert_eq(wg_cap ~= nil, true, "capabilities/windGust.json exists")
+local wg_parsed = json.decode(wg_cap)
+assert_eq(wg_parsed.name, "Wind Gust", "Wind gust capability name is 'Wind Gust'")
+assert_eq(wg_parsed.attributes.windGust ~= nil, true, "Wind gust attribute defined")
+
+local wg_pres = read_file("capabilities/windGust-presentation.json")
+assert_eq(wg_pres ~= nil, true, "capabilities/windGust-presentation.json exists")
+local wg_pres_parsed = json.decode(wg_pres)
+assert_eq(wg_pres_parsed.detailView ~= nil, true, "Wind gust presentation detailView defined")
+
 print(string.format("\n=========================================="))
 print(string.format("TEST RESULTS: %d Passed, %d Failed", pass_count, fail_count))
 print(string.format("=========================================="))

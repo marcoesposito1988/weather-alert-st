@@ -9,6 +9,10 @@ components:
         version: 1
       - id: atmosphericPressureMeasurement
         version: 1
+      - id: originabsolute64830.windSpeed
+        version: 1
+      - id: originabsolute64830.windGust
+        version: 1
       - id: contactSensor
         version: 1
       - id: switch

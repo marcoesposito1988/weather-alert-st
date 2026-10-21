@@ -1,0 +1,31 @@
+{
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{windGust.value}} {{windGust.unit}}"
+      }
+    ]
+  },
+  "detailView": [
+    {
+      "label": "Wind Gust",
+      "displayType": "state",
+      "state": {
+        "label": "{{windGust.value}} {{windGust.unit}}",
+        "unit": "windGust.unit"
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Wind Gust",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "windGust.value",
+          "unit": "windGust.unit"
+        }
+      }
+    ]
+  }
+}

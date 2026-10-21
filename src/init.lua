@@ -8,6 +8,139 @@ local discovery = require("discovery")
 
 local TIMER_KEY = "weather_poll_timer"
 
+local WIND_SPEED_DEF = [[{
+  "id": "originabsolute64830.windSpeed",
+  "version": 1,
+  "status": "proposed",
+  "name": "Wind Speed",
+  "ephemeral": false,
+  "attributes": {
+    "windSpeed": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": { "type": "number", "minimum": 0, "maximum": 300 },
+          "unit": { "type": "string", "enum": ["km/h", "m/s", "mph", "knots", "Bft"], "default": "km/h" }
+        },
+        "additionalProperties": false,
+        "required": ["value"]
+      },
+      "enumCommands": []
+    }
+  },
+  "commands": {}
+}]]
+
+local WIND_GUST_DEF = [[{
+  "id": "originabsolute64830.windGust",
+  "version": 1,
+  "status": "proposed",
+  "name": "Wind Gust",
+  "attributes": {
+    "windGust": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": { "type": "number", "minimum": 0, "maximum": 300 },
+          "unit": { "type": "string", "enum": ["km/h", "m/s", "mph", "knots", "Bft"], "default": "km/h" }
+        },
+        "additionalProperties": false,
+        "required": ["value"]
+      },
+      "enumCommands": []
+    }
+  },
+  "commands": {}
+}]]
+
+-- Pre-register custom capabilities in st.capabilities lookup table
+if capabilities.build_cap_from_json_string then
+  local ok_ws, ws_cap = pcall(capabilities.build_cap_from_json_string, WIND_SPEED_DEF)
+  if ok_ws and ws_cap then
+    capabilities["originabsolute64830.windSpeed"] = ws_cap
+    capabilities["windSpeed"] = ws_cap
+  end
+  local ok_wg, wg_cap = pcall(capabilities.build_cap_from_json_string, WIND_GUST_DEF)
+  if ok_wg and wg_cap then
+    capabilities["originabsolute64830.windGust"] = wg_cap
+    capabilities["windGust"] = wg_cap
+  end
+end
+
+--- Helper to resolve capability definition by name or suffix
+local function get_capability(device, suffix, default_json)
+  local cap_id = nil
+  if device and device.profile and device.profile.components and device.profile.components.main then
+    local comp_caps = device.profile.components.main.capabilities or {}
+    for k, v in pairs(comp_caps) do
+      local candidate = nil
+      if type(k) == "string" and (k == suffix or k:match("%." .. suffix .. "$")) then
+        candidate = k
+      elseif type(v) == "table" and type(v.id) == "string" and (v.id == suffix or v.id:match("%." .. suffix .. "$")) then
+        candidate = v.id
+      elseif type(v) == "string" and (v == suffix or v:match("%." .. suffix .. "$")) then
+        candidate = v
+      end
+      if candidate then
+        cap_id = candidate
+        break
+      end
+    end
+  end
+
+  cap_id = cap_id or "originabsolute64830." .. suffix
+
+  if capabilities[cap_id] then
+    return capabilities[cap_id], cap_id
+  end
+
+  if capabilities[suffix] then
+    return capabilities[suffix], cap_id
+  end
+
+  if capabilities.build_cap_from_json_string and default_json then
+    local def_with_id = default_json:gsub('"id":%s*"[^"]+"', '"id": "' .. cap_id .. '"')
+    local ok, cap = pcall(capabilities.build_cap_from_json_string, def_with_id)
+    if ok and cap then
+      capabilities[cap_id] = cap
+      return cap, cap_id
+    end
+  end
+
+  return nil, cap_id
+end
+
+--- Helper to emit wind and gust speed measurement events
+local function emit_wind_events(device, wind_speed, wind_gust)
+  local speed_cap, speed_cap_id = get_capability(device, "windSpeed", WIND_SPEED_DEF)
+  local gust_cap, gust_cap_id = get_capability(device, "windGust", WIND_GUST_DEF)
+
+  local speed_val = tonumber(wind_speed) or 0.0
+  local gust_val = tonumber(wind_gust) or 0.0
+
+  if speed_cap and speed_cap.windSpeed then
+    device:emit_event(speed_cap.windSpeed({ value = speed_val, unit = "km/h" }))
+  else
+    device:emit_event({
+      capability = speed_cap_id or "originabsolute64830.windSpeed",
+      attribute = "windSpeed",
+      value = speed_val,
+      unit = "km/h"
+    })
+  end
+
+  if gust_cap and gust_cap.windGust then
+    device:emit_event(gust_cap.windGust({ value = gust_val, unit = "km/h" }))
+  else
+    device:emit_event({
+      capability = gust_cap_id or "originabsolute64830.windGust",
+      attribute = "windGust",
+      value = gust_val,
+      unit = "km/h"
+    })
+  end
+end
+
 --- Helper to emit an event on a specific component if it exists, falling back to device:emit_event
 local function emit_component_event(device, component_id, event)
   if component_id and device.profile and device.profile.components and device.profile.components[component_id] then
@@ -81,10 +214,11 @@ local function poll_weather(driver, device)
   device:set_field("wind_alert_state", is_alert)
   device:set_field("last_weather_data", data)
 
-  -- Emit temperature, humidity, atmospheric pressure
+  -- Emit temperature, humidity, atmospheric pressure, wind speed, and wind gust
   device:emit_event(capabilities.temperatureMeasurement.temperature({ value = data.temperature, unit = "C" }))
   device:emit_event(capabilities.relativeHumidityMeasurement.humidity({ value = data.humidity }))
   device:emit_event(capabilities.atmosphericPressureMeasurement.atmosphericPressure({ value = data.pressure_kpa, unit = "kPa" }))
+  emit_wind_events(device, data.wind_speed_kmh, data.wind_gust_kmh)
 
   -- Emit Wind Alert status:
   -- Contact Sensor: 'open' = High Wind Danger (close blinds), 'closed' = Safe
@@ -145,6 +279,7 @@ local function device_added(driver, device)
   device:emit_event(capabilities.temperatureMeasurement.temperature({ value = 15.0, unit = "C" }))
   device:emit_event(capabilities.relativeHumidityMeasurement.humidity({ value = 60 }))
   device:emit_event(capabilities.atmosphericPressureMeasurement.atmosphericPressure({ value = 101.3, unit = "kPa" }))
+  emit_wind_events(device, 0.0, 0.0)
 
   -- Initialize proxy component state
   emit_component_event(device, "proxy", capabilities.presenceSensor.presence.present())

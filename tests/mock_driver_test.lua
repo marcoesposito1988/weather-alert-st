@@ -70,6 +70,12 @@ local capabilities = {
       present = function() return { capability = "presenceSensor", attribute = "presence", value = "present" } end,
       not_present = function() return { capability = "presenceSensor", attribute = "presence", value = "not present" } end
     }
+  },
+  windSpeed = {
+    windSpeed = function(v) return { capability = "windSpeed", attribute = "windSpeed", value = v.value, unit = v.unit } end
+  },
+  windGust = {
+    windGust = function(v) return { capability = "windGust", attribute = "windGust", value = v.value, unit = v.unit } end
   }
 }
 
@@ -103,6 +109,8 @@ mock_device:set_field("wind_alert_state", is_alert)
 assert(is_alert == false, "Normal weather should not trigger alert")
 mock_device:emit_event(capabilities.contactSensor.contact.closed())
 mock_device:emit_event(capabilities.switch.switch.off())
+mock_device:emit_event(capabilities.windSpeed.windSpeed({ value = sample_normal.wind_speed_kmh, unit = "km/h" }))
+mock_device:emit_event(capabilities.windGust.windGust({ value = sample_normal.wind_gust_kmh, unit = "km/h" }))
 
 -- Test High Wind Event (Wind Gust 48 km/h >= 35 km/h)
 local sample_storm = {

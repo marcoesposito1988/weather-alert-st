@@ -27,7 +27,8 @@ A SmartThings Edge Driver written in Lua that polls real-time weather and wind d
   - **Polling Frequency**: 1 to 60 minutes.
    - **Weather Service Provider**: DWD via Bright Sky API or DWD ICON via Open-Meteo.
    - **LAN Proxy / Custom Endpoint (Optional)**: Configure a local LAN IP (e.g. `http://192.168.1.50:8080`) to route requests through a local gateway when hub WAN DNS is restricted.
-- **Full Sensor Readings**: Reports Temperature (°C), Relative Humidity (%), and Atmospheric Pressure (kPa/hPa).
+- **Full Sensor Readings**: Reports Temperature (°C), Relative Humidity (%), Atmospheric Pressure (kPa/hPa), Sustained Wind Speed (km/h), and Wind Gust Speed (km/h).
+- **Custom Wind Capabilities**: Exposes dedicated `windSpeed` and `windGust` measurement capabilities with exact numeric values for clean UI display and automation triggers.
 - **Manual Control & Testing**: "Refresh" button for immediate live weather fetch and "Switch" toggle to test blind-closing automations.
 
 ---
@@ -75,7 +76,19 @@ Log in to your Samsung SmartThings account:
 smartthings edge:channels
 ```
 
-### 2. Package and Publish Driver
+### 2. (Optional One-Time Setup) Register Custom Wind Capabilities
+To display dedicated **Wind Speed** and **Wind Gust** cards in the SmartThings UI:
+```bash
+# Create capability definitions
+smartthings capabilities:create -i capabilities/windSpeed.json
+smartthings capabilities:create -i capabilities/windGust.json
+
+# Create presentations (replace <CAPABILITY_ID> with the ID returned above, e.g. <namespace>.windSpeed)
+smartthings capabilities:presentation:create <WIND_SPEED_CAP_ID> -i capabilities/windSpeed-presentation.json
+smartthings capabilities:presentation:create <WIND_GUST_CAP_ID> -i capabilities/windGust-presentation.json
+```
+
+### 3. Package and Publish Driver
 From the project root:
 ```bash
 # Package the driver

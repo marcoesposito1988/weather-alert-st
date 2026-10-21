@@ -1,0 +1,31 @@
+{
+  "dashboard": {
+    "states": [
+      {
+        "label": "{{windSpeed.value}} {{windSpeed.unit}}"
+      }
+    ]
+  },
+  "detailView": [
+    {
+      "label": "Wind Speed",
+      "displayType": "state",
+      "state": {
+        "label": "{{windSpeed.value}} {{windSpeed.unit}}",
+        "unit": "windSpeed.unit"
+      }
+    }
+  ],
+  "automation": {
+    "conditions": [
+      {
+        "label": "Wind Speed",
+        "displayType": "numberField",
+        "numberField": {
+          "value": "windSpeed.value",
+          "unit": "windSpeed.unit"
+        }
+      }
+    ]
+  }
+}
